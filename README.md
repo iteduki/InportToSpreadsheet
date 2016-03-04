@@ -5,8 +5,6 @@ API経由でGoogleSpreadsheetに書き込む用のサンプルです。
 BatchRequestで大量のデータでも使用できるようにしています。  
 https://developers.google.com/google-apps/spreadsheets/?csw=1#SendingBatchRequests
 
-
-段落を分けるには、[空行](http://example.com/) を入れます。
  
 使い方
 ------
