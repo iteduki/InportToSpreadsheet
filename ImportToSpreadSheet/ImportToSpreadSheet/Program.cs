@@ -7,6 +7,7 @@ using System.Collections.Generic;
 using System.Configuration;
 using System.IO;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 
@@ -44,13 +45,25 @@ namespace ImportToSpreadSheet
 
             // ファイルの中身を読み取り
             var lines = File.ReadAllLines(path, Encoding.GetEncoding("shift-jis"));
+            var sheetId = "";
 
-            // デベロッパーコンソール
-            // https://console.developers.google.com/
+            var service = GetServiceAsServiceAccount();
+            //var service = GetServiceAsOAuth();
 
-            // Create→OAuth client ID → otherで発行
-            // API設定は特にいじらなくていい
+            ImportToSpreadsheet(lines, sheetId, service);
 
+            Console.WriteLine("終了するにはなにかキーを押してください。。。");
+            Console.Read();
+        }
+
+        #region static method
+
+        /// <summary>
+        /// OAuth認証で使用するserviceを取得
+        /// </summary>
+        /// <returns></returns>
+        private static SpreadsheetsService GetServiceAsOAuth()
+        {
             // 認証情報
             var userName = ConfigurationManager.AppSettings["googleAccountName"];
             var clientId = ConfigurationManager.AppSettings["googleClientId"];
@@ -89,9 +102,49 @@ namespace ImportToSpreadSheet
                 RequestFactory = requestFactory
             };
 
+            return service;
+        }
+
+        /// <summary>
+        /// ServiceAccountで使用するserviceを取得
+        /// </summary>
+        /// <returns></returns>
+        private static SpreadsheetsService GetServiceAsServiceAccount()
+        {
+            // 鍵ファイル
+            var keyFilePath = System.Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory) + @"\key.p12";
+
+            var serviceAccountEmail = ConfigurationManager.AppSettings["serviceAccountEmail"].ToString();   // found in developer console
+            var certificate = new X509Certificate2(keyFilePath, "notasecret", X509KeyStorageFlags.Exportable);
+
+            ServiceAccountCredential credential = new ServiceAccountCredential(new ServiceAccountCredential.Initializer(serviceAccountEmail) //create credential using certigicate
+            {
+                Scopes = new[] { "https://spreadsheets.google.com/feeds/" } //this scopr is for spreadsheets, check google scope FAQ for others
+            }.FromCertificate(certificate));
+
+            credential.RequestAccessTokenAsync(System.Threading.CancellationToken.None).Wait(); //request token
+
+            var requestFactory = new GDataRequestFactory("My App User Agent");
+            requestFactory.CustomHeaders.Add(string.Format("Authorization: Bearer {0}", credential.Token.AccessToken));
+
+            var service = new SpreadsheetsService("myApp")
+            {
+                RequestFactory = requestFactory
+            };
+
+            return service;
+        }
+
+        /// <summary>
+        /// スプレッドシートに記入する
+        /// </summary>
+        /// <param name="lines"></param>
+        /// <param name="sheetId"></param>
+        /// <param name="service"></param>
+        private static void ImportToSpreadsheet(string[] lines, string sheetId, SpreadsheetsService service)
+        {
             // 更新対象のスプレッドシートを検索
-            // スプレッドシートのId。URLのランダムな文字列の部分
-            var sheetId = "";
+            // スプレッドシートのId。URLのランダムな文字列の部分            
             var url = "https://spreadsheets.google.com/feeds/spreadsheets/" + sheetId;
             var query = new SpreadsheetQuery(url);
             var feed = service.Query(query);
@@ -108,7 +161,6 @@ namespace ImportToSpreadSheet
             var cellQuery = new CellQuery(worksheet.CellFeedLink);
             var cellFeed = service.Query(cellQuery);
 
-            
 
             // セルのアドレスを格納
             var cellAddresses = new List<CellAddress>(rowCount * colCount);
@@ -125,11 +177,11 @@ namespace ImportToSpreadSheet
             var batchRequest = new CellFeed(cellQuery.Uri, service);
 
             // セルに書き込む値を設定
-            for(var i = 0; i < rowCount; i++)
+            for (var i = 0; i < rowCount; i++)
             {
                 var line = lines[i];
                 var values = line.Split(',');
-                for(var j = 0; j < colCount; j++)
+                for (var j = 0; j < colCount; j++)
                 {
                     var cellAddr = cellAddresses[i * colCount + j];
                     var batchEntry = cellEntries[cellAddr.IdString];
@@ -142,10 +194,7 @@ namespace ImportToSpreadSheet
 
             CellFeed batchResponse = (CellFeed)service.Batch(batchRequest, new Uri(cellFeed.Batch));
             Console.WriteLine("finish");
-            Console.WriteLine("終了するにはなにかキーを押してください。。。");
-            Console.Read();
         }
-
         /**
          * Connects to the specified {@link SpreadsheetsService} and uses a batch
          * request to retrieve a {@link CellEntry} for each cell enumerated in {@code
@@ -186,7 +235,6 @@ namespace ImportToSpreadSheet
             return cellEntryMap;
         }
 
+        #endregion
     }
-
-
 }
